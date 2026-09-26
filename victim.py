@@ -90,6 +90,9 @@ def _extract_short_answer(text: str) -> str:
     Extract the short factual answer from a potentially verbose model response.
 
     Strategy:
+    0. If the model emitted a reasoning block, keep only what follows it.
+       Reasoning models (qwen3, deepseek-r1, …) put their chain-of-thought
+       before a </think> marker and the actual answer after it.
     1. Look for explicit "the answer is …" patterns and extract their payload.
     2. Look for the last short (≤ 8-word) non-empty line that is not a
        meta-description ("a name", "a place", …).
@@ -99,6 +102,17 @@ def _extract_short_answer(text: str) -> str:
     """
     text = text.strip()
     if not text:
+        return ""
+
+    # 0. Strip the reasoning block. Everything after the final </think> is the
+    #    real answer. If the marker is present but nothing follows it, the model
+    #    ran out of tokens mid-reasoning — that is a genuine non-answer.
+    if "</think>" in text:
+        text = text.rsplit("</think>", 1)[1].strip()
+        if not text:
+            return ""
+    elif "<think>" in text:
+        # Opening marker with no close: reasoning was truncated, no answer given.
         return ""
 
     # 1. Look for explicit answer-intro pattern anywhere in the text
