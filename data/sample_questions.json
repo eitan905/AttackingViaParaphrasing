@@ -1,8 +1,8 @@
 [
   {
     "id": "nq_001",
-    "question": "What is the capital of Australia?",
-    "answers": ["Canberra"]
+    "question": "In which year did World War I begin?",
+    "answers": ["1914"]
   },
   {
     "id": "nq_002",

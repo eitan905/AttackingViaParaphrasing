@@ -64,6 +64,7 @@ class ExperimentConfig:
     dataset_path: Optional[str] = None   # None → built-in data/sample_questions.json
     n_questions: int = 3
     random_seed: int = 42
+    question_ids: Optional[List[str]] = None  # if set, use these specific IDs in order
 
     # ---- Evaluation ----
     evaluator: str = "both"    # "exact_match" | "llm_judge" | "both"
@@ -156,6 +157,9 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
     parser.add_argument("--dataset-path", default=None)
     parser.add_argument("--n-questions",  type=int, default=defaults.n_questions)
     parser.add_argument("--random-seed",  type=int, default=defaults.random_seed)
+    parser.add_argument("--question-ids", nargs="+", default=None,
+                        metavar="ID",
+                        help="Use specific question IDs in order, e.g. --question-ids nq_004 nq_009 nq_001")
 
     # Evaluation
     parser.add_argument("--evaluator", default=defaults.evaluator,
@@ -192,6 +196,7 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
         dataset_path=args.dataset_path,
         n_questions=args.n_questions,
         random_seed=args.random_seed,
+        question_ids=args.question_ids,
         evaluator=args.evaluator,
         results_dir=args.results_dir,
         save_candidates=args.save_candidates,

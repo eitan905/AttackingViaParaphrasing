@@ -23,16 +23,19 @@ def load_questions(
     path: Optional[str] = None,
     n: Optional[int] = None,
     seed: int = 42,
+    question_ids: Optional[List[str]] = None,
 ) -> List[QuestionEntry]:
     """
     Load questions from `path` (or the built-in dataset if None),
-    optionally sampling `n` items.
+    optionally filtering by IDs or sampling `n` items.
 
     Args:
-        path:  File path to a JSON or CSV question dataset.
-               None → use the built-in data/sample_questions.json.
-        n:     How many questions to return.  None → all.
-        seed:  Random seed used when sampling.
+        path:         File path to a JSON or CSV question dataset.
+                      None → use the built-in data/sample_questions.json.
+        n:            How many questions to return.  None → all.
+        seed:         Random seed used when sampling.
+        question_ids: If provided, return only questions whose id is in this list,
+                      in the given order (e.g. ["nq_004", "nq_009", "nq_001"]).
 
     Returns:
         List of dicts with keys: id, question, answers (list of strings).
@@ -48,6 +51,11 @@ def load_questions(
 
     if not entries:
         raise ValueError(f"No questions found in dataset (path={path!r}).")
+
+    if question_ids:
+        by_id = {e["id"]: e for e in entries}
+        entries = [by_id[qid] for qid in question_ids if qid in by_id]
+        return entries
 
     if n is not None and n < len(entries):
         rng = random.Random(seed)

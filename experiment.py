@@ -57,7 +57,8 @@ def run_experiment(cfg: ExperimentConfig) -> Dict[str, Any]:
     evaluators = _build_evaluators(cfg, client)
 
     # --- Dataset ---
-    questions = load_questions(cfg.dataset_path, cfg.n_questions, cfg.random_seed)
+    questions = load_questions(cfg.dataset_path, cfg.n_questions, cfg.random_seed,
+                               question_ids=cfg.question_ids)
     logger.info("Loaded %d questions.", len(questions))
 
     # --- Main loop ---
