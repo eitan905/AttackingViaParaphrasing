@@ -22,6 +22,7 @@ PARAPHRASE_STRATEGIES = [
     "synonym",     # replace words/phrases with synonyms
     "structural",  # change sentence structure (active/passive, word order)
     "contextual",  # add neutral framing without changing meaning
+    "unnatural",   # syntactically valid but maximally non-human / awkward phrasing
 ]
 
 ATTACK_METHODS = [

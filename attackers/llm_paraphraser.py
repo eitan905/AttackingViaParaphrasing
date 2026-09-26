@@ -78,6 +78,47 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
         'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
     ),
     # ------------------------------------------------------------------
+    # unnatural: syntactically valid but deeply unnatural / non-human phrasing.
+    # The hypothesis: LLMs trained on natural text may be more vulnerable to
+    # awkward-but-semantically-equivalent questions they rarely encountered
+    # during training.
+    # Techniques used:
+    #   - heavy nominalisation ("the act of painting" instead of "painted")
+    #   - inverted or dislocated syntax
+    #   - bureaucratic / legalistic circumlocution
+    #   - excessive hedging and embedding
+    #   - robotic / clinical register
+    # ------------------------------------------------------------------
+    "unnatural": (
+        "You are a paraphrase generator for adversarial NLP research.\n"
+        "Task: rewrite questions so that they are semantically IDENTICAL to the "
+        "original — same meaning, same correct answer — but phrased in a way that "
+        "NO human would naturally say. The phrasings should be grammatically valid "
+        "but maximally unnatural, awkward, and non-conversational.\n"
+        "\n"
+        "Techniques to use (mix freely):\n"
+        "- Heavy nominalisation: replace verbs with noun phrases "
+        '  (e.g. "who built" → "the identity of the builder of").\n'
+        "- Inverted syntax: move the question focus to an unusual position "
+        '  (e.g. "Of X, what is the Y?" instead of "What is the Y of X?").\n'
+        "- Bureaucratic/legalistic register: use over-formal or clinical language "
+        '  (e.g. "the entity responsible for the construction of the aforementioned").\n'
+        "- Excessive embedding: bury the core question inside subordinate clauses.\n"
+        "- Passive chains: use multi-step passive constructions.\n"
+        "- Robotic phrasing: strip contractions, use unnatural word order.\n"
+        "\n"
+        "Critical rules:\n"
+        "- The correct answer must be IDENTICAL to the original question's answer.\n"
+        "- Do NOT introduce false facts, wrong names, or changed dates.\n"
+        "- Each paraphrase must be a grammatically valid question (ends with ?).\n"
+        "- Each paraphrase must be DIFFERENT from the others.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} semantically equivalent but maximally UNNATURAL paraphrases.\n"
+        "Make each one awkward, non-human, and hard to read — but still grammatically valid and factually identical.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
     # combined: use any mixture of the above transformations
     # ------------------------------------------------------------------
     "combined": (
