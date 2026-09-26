@@ -20,21 +20,27 @@ logger = logging.getLogger(__name__)
 
 _JUDGE_SYSTEM = (
     "You are a strict QA evaluation judge.\n"
-    "Decide if a prediction is semantically equivalent to a ground truth answer.\n"
+    "You are given a question, a model's prediction, and the ground truth answer.\n"
+    "Decide if the prediction correctly answers the question.\n"
     "\n"
     "Scoring rules:\n"
-    "- Score 1 if meanings match, even with extra descriptors, aliases, "
-    "reordered words, or containment relationships.\n"
+    "- Score 1 if the prediction correctly answers the question and matches the "
+    "ground truth in meaning, even with extra descriptors, aliases, or reordered words.\n"
     "- Score 1 for abbreviations or nicknames that clearly refer to the same entity.\n"
-    "- Score 0 if they refer to different entities or directly contradict.\n"
+    "- Score 0 if the prediction refers to a different entity than the ground truth.\n"
+    "- Score 0 if the prediction directly contradicts the ground truth.\n"
+    "- Score 0 if the prediction is a non-answer (e.g. 'I don't know', 'but', fragments).\n"
     "- If both mention geographic/entity qualifiers that conflict, score 0.\n"
     "- Ignore casing, punctuation, whitespace, and articles (the/a/an).\n"
+    "- IMPORTANT: always verify the prediction makes sense as an answer to the "
+    "specific question asked — not just that it sounds plausible in general.\n"
     "\n"
     'Output ONLY this JSON object: {"score": 0 or 1, "rationale": "one sentence"}'
 )
 
 _JUDGE_USER_TMPL = (
     "/no_think\n"
+    'Question: "{question}"\n'
     'Prediction: "{prediction}"\n'
     'Ground truth: "{ground_truth}"\n\n'
     'Output ONLY: {{"score": 0 or 1, "rationale": "..."}}'
@@ -76,13 +82,14 @@ class LLMJudgeEvaluator(BaseEvaluator):
         self,
         prediction: str,
         ground_truths: List[str],
+        question: str = "",   # original question for context
     ) -> EvalResult:
         """
         Returns EvalResult with score=1.0 if any ground truth matches,
         else score=0.0.
         """
         for gt in ground_truths:
-            result = self._score_pair(prediction, gt)
+            result = self._score_pair(prediction, gt, question)
             if result.correct:
                 return result
         return EvalResult(
@@ -91,12 +98,15 @@ class LLMJudgeEvaluator(BaseEvaluator):
             rationale="No ground truth matched.",
         )
 
-    def _score_pair(self, prediction: str, ground_truth: str) -> EvalResult:
+    def _score_pair(self, prediction: str, ground_truth: str,
+                    question: str = "") -> EvalResult:
         # Fast path: exact / containment after normalisation
-        if self.use_fast_path:
+        # Skip fast path if prediction looks like a non-answer fragment
+        if self.use_fast_path and len(prediction.split()) > 0:
             np_ = normalise_text(prediction)
             ng = normalise_text(ground_truth)
-            if np_ == ng or ng in np_ or np_ in ng:
+            # Only fast-path on short, clean matches — not fragments like "but"
+            if len(np_.split()) >= 1 and (np_ == ng or ng in np_ or np_ in ng):
                 return EvalResult(
                     correct=True,
                     score=1.0,
@@ -108,7 +118,9 @@ class LLMJudgeEvaluator(BaseEvaluator):
             {
                 "role": "user",
                 "content": _JUDGE_USER_TMPL.format(
-                    prediction=prediction, ground_truth=ground_truth
+                    question=question or "(question not provided)",
+                    prediction=prediction,
+                    ground_truth=ground_truth,
                 ),
             },
         ]

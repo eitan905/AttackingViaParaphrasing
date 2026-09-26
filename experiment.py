@@ -101,7 +101,8 @@ def _process_question(q, attacker, victim, semantic_judge, evaluators, cfg):
 
     # Step 1: baseline — victim answers the original question
     baseline_answer = victim.answer(question_text)
-    baseline_eval = _eval_answer(baseline_answer, ground_truth, evaluators)
+    baseline_eval = _eval_answer(baseline_answer, ground_truth, evaluators,
+                                 question=question_text)
 
     # Step 2: generate paraphrase candidates
     candidates = attacker.generate_paraphrases(
@@ -139,7 +140,9 @@ def _process_question(q, attacker, victim, semantic_judge, evaluators, cfg):
         victim_answer = victim.answer(candidate)
 
         # Step 5: judge whether victim's answer is correct
-        eval_scores = _eval_answer(victim_answer, ground_truth, evaluators)
+        # Pass original question as context so the judge knows what's being asked
+        eval_scores = _eval_answer(victim_answer, ground_truth, evaluators,
+                                   question=question_text)
         correct = _is_correct(eval_scores)
 
         paraphrase_results.append({
@@ -216,10 +219,15 @@ def _build_evaluators(cfg, client):
     return evaluators
 
 
-def _eval_answer(answer: str, ground_truth: List[str], evaluators) -> Dict:
+def _eval_answer(answer: str, ground_truth: List[str], evaluators,
+                 question: str = "") -> Dict:
     scores = {}
     for ev in evaluators:
-        result = ev.evaluate(answer, ground_truth)
+        # Pass question to LLM judge for context; ignored by exact_match
+        if hasattr(ev, 'evaluate') and 'question' in ev.evaluate.__code__.co_varnames:
+            result = ev.evaluate(answer, ground_truth, question=question)
+        else:
+            result = ev.evaluate(answer, ground_truth)
         scores[ev.name] = {
             "score": result.score,
             "correct": result.correct,

@@ -92,6 +92,17 @@ class SemanticEquivalenceJudge:
             return SemanticResult(is_equivalent=True, score=1.0,
                                   rationale="Identical after normalisation.")
 
+        # Hard filter: dangling anaphora check.
+        # Paraphrases that use "aforementioned", "said X", "the subject in question"
+        # without establishing a referent are incomplete as standalone questions.
+        dangling = _check_dangling_reference(paraphrase, original)
+        if dangling:
+            return SemanticResult(
+                is_equivalent=False,
+                score=0.0,
+                rationale=f"Dangling reference: '{dangling}' has no referent in a standalone question.",
+            )
+
 
         messages = [
             {"role": "system", "content": _SYSTEM},
@@ -122,6 +133,59 @@ class SemanticEquivalenceJudge:
         is_equiv = score >= self.threshold
         return SemanticResult(is_equivalent=is_equiv, score=score,
                               rationale=rationale)
+
+
+# ---------------------------------------------------------------------------
+# Dangling reference detection
+# ---------------------------------------------------------------------------
+
+# Phrases that presuppose prior context that doesn't exist in a standalone question
+_DANGLING_PHRASES = [
+    "aforementioned",
+    "the subject in question",
+    "said structure",
+    "said site",
+    "said work",
+    "said artifact",
+    "said building",
+    "said city",
+    "the above",
+    "the above-mentioned",
+    "the previously mentioned",
+    "the previously stated",
+]
+
+
+def _check_dangling_reference(paraphrase: str, original: str) -> str | None:
+    """
+    Returns the dangling phrase if the paraphrase contains a reference that
+    presupposes prior context (e.g. 'aforementioned') but the specific subject
+    from the original question is NOT also mentioned in the paraphrase.
+
+    If the paraphrase says "the aforementioned Mona Lisa" — that's fine (explicit).
+    If it says just "the aforementioned work" — that's dangling (no referent).
+    """
+    para_lower = paraphrase.lower()
+
+    for phrase in _DANGLING_PHRASES:
+        if phrase not in para_lower:
+            continue
+
+        # Extract key nouns from the original question (proper nouns / quoted names)
+        # as a simple heuristic: words longer than 4 chars that are capitalised
+        original_keywords = {
+            w.lower() for w in re.findall(r'\b[A-Z][a-zA-Z]{3,}\b', original)
+            if w.lower() not in {"which", "what", "where", "when", "who", "whom",
+                                  "whose", "that", "this", "these", "those",
+                                  "ancient", "modern", "famous", "great"}
+        }
+
+        # If none of the original's key nouns appear in the paraphrase,
+        # the reference is dangling
+        if original_keywords and not any(kw in para_lower for kw in original_keywords):
+            return phrase
+
+    return None
 
 
 # ---------------------------------------------------------------------------
