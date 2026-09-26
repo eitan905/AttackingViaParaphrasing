@@ -178,6 +178,20 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
 }
 
 
+# Constrained-decoding schema shared by every strategy.
+_PARAPHRASE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "paraphrases": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+        },
+    },
+    "required": ["paraphrases"],
+}
+
+
 class LLMParaphraser(BaseAttacker):
     """
     Uses an Ollama LLM to generate semantically equivalent paraphrases.
@@ -242,22 +256,19 @@ class LLMParaphraser(BaseAttacker):
         last_raw: Optional[str] = None
         for attempt in range(1 + self.retries):
             try:
-                # Use plain chat (no format=json) so qwen3 doesn't return
-                # error objects.  We parse JSON from the raw response instead.
-                raw = self.client.chat(
+                # Constrained decoding: reasoning models ignore "output only
+                # JSON" and ramble in prose until the token budget runs out,
+                # so the shape has to be enforced server-side.
+                parsed = self.client.chat_json(
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     think=False,
+                    schema=_PARAPHRASE_SCHEMA,
                 )
-                last_raw = raw
-                try:
-                    parsed = _parse_json_robust(raw)
-                    paraphrases = _extract_string_list(parsed, question)
-                except ValueError:
-                    # JSON parse failed — fall through to prose extraction below
-                    paraphrases = []
+                last_raw = parsed if isinstance(parsed, str) else str(parsed)
+                paraphrases = _extract_string_list(parsed, question)
 
                 if paraphrases:
                     return paraphrases

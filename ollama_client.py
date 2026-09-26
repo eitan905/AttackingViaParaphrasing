@@ -114,16 +114,21 @@ class OllamaClient:
         temperature: float = 0.2,
         max_tokens: int = 1024,
         think: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """
         Like `chat()` but instructs Ollama to return valid JSON and
         automatically parses it.  Falls back to regex extraction on failure.
+
+        Passing a `schema` constrains decoding to that JSON shape.  Reasoning
+        models ignore "output only JSON" instructions and ramble instead, so
+        the schema is the only reliable way to get structured output from them.
         """
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "format": "json",
+            "format": schema if schema is not None else "json",
             "think": think,
             "options": {
                 "temperature": temperature,

@@ -43,7 +43,8 @@ def run_experiment(cfg: ExperimentConfig) -> Dict[str, Any]:
     client.require_available()
 
     # --- Components ---
-    victim = VictimModel(client, cfg.victim_model, temperature=cfg.victim_temperature)
+    victim = VictimModel(client, cfg.victim_model, temperature=cfg.victim_temperature,
+                         max_tokens=cfg.victim_max_tokens)
 
     semantic_judge = SemanticEquivalenceJudge(
         client=client,
@@ -52,7 +53,7 @@ def run_experiment(cfg: ExperimentConfig) -> Dict[str, Any]:
         threshold=cfg.semantic_threshold,
     )
 
-    attacker = _build_attacker(cfg, client, semantic_judge)
+    attacker = _build_attacker(cfg, client, semantic_judge, victim)
 
     evaluators = _build_evaluators(cfg, client)
 
@@ -182,7 +183,7 @@ def _process_question(q, attacker, victim, semantic_judge, evaluators, cfg):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_attacker(cfg, client, semantic_judge):
+def _build_attacker(cfg, client, semantic_judge, victim):
     if cfg.attack_method == "evolutionary":
         candidates_dir = (
             os.path.join(cfg.results_dir, "candidates") if cfg.save_candidates else None
@@ -197,6 +198,10 @@ def _build_attacker(cfg, client, semantic_judge):
             n_mutations=cfg.n_mutations,
             temperature=cfg.attacker_temperature,
             candidates_dir=candidates_dir,
+            # Steering the search means probing the same victim the attack
+            # will ultimately be scored against.
+            fitness_victim=victim if cfg.fitness == "amplification" else None,
+            elite_size=cfg.elite_size,
         )
     else:
         return LLMParaphraser(

@@ -6,6 +6,8 @@ Swapping the underlying model is a one-liner in ExperimentConfig.
 """
 
 import re
+from typing import Tuple
+
 from ollama_client import OllamaClient
 
 _SYSTEM_PROMPT = (
@@ -45,6 +47,15 @@ class VictimModel:
         qwen3 often outputs reasoning before the answer; we extract only the
         final answer using _extract_short_answer().
         """
+        return self.answer_verbose(question)[0]
+
+    def answer_verbose(self, question: str) -> Tuple[str, str]:
+        """
+        Same as `answer`, but also returns the untouched model output.
+
+        The raw text length is a usable proxy for how much the model had to
+        deliberate, which the evolutionary attacker uses as a fitness signal.
+        """
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user",   "content": question},
@@ -56,7 +67,7 @@ class VictimModel:
             max_tokens=self.max_tokens,
             think=False,
         )
-        return _extract_short_answer(raw)
+        return _extract_short_answer(raw), raw
 
 
 # Patterns that introduce the final answer in reasoning-style outputs

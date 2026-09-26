@@ -31,6 +31,12 @@ ATTACK_METHODS = [
     "evolutionary",      # iterative generate → semantic-filter → mutate loop
 ]
 
+# Fitness functions steering which evolutionary survivors get mutated
+FITNESS_CHOICES = [
+    "none",            # undirected: mutate every survivor
+    "amplification",   # mutate the survivors the victim deliberates longest over
+]
+
 EVALUATOR_CHOICES = ["exact_match", "llm_judge", "both"]
 
 
@@ -60,6 +66,8 @@ class ExperimentConfig:
     pop_multiplier: int = 2       # initial population = n_paraphrases × pop_multiplier
     n_mutations: int = 3          # LLM mutations per survivor per generation
     semantic_threshold: float = 0.7  # min semantic score to accept a paraphrase
+    fitness: str = "none"         # see FITNESS_CHOICES
+    elite_size: int = 4           # survivors mutated per generation when fitness is on
 
     # ---- Dataset ----
     dataset_path: Optional[str] = None   # None → built-in data/sample_questions.json
@@ -79,6 +87,10 @@ class ExperimentConfig:
     victim_temperature: float = 0.0
     judge_temperature: float = 0.0
 
+    # Reasoning models need room to finish deliberating; a truncated chain of
+    # thought yields an empty answer that looks like a successful attack.
+    victim_max_tokens: int = 2048
+
     def validate(self) -> None:
         if self.attack_method not in ATTACK_METHODS:
             raise ValueError(
@@ -89,6 +101,10 @@ class ExperimentConfig:
             raise ValueError(
                 f"Unknown paraphrase_strategy {self.paraphrase_strategy!r}. "
                 f"Choose from: {PARAPHRASE_STRATEGIES}"
+            )
+        if self.fitness not in FITNESS_CHOICES:
+            raise ValueError(
+                f"Unknown fitness {self.fitness!r}. Choose from: {FITNESS_CHOICES}"
             )
         if self.evaluator not in EVALUATOR_CHOICES:
             raise ValueError(
@@ -111,6 +127,8 @@ class ExperimentConfig:
             f"__judge_{slug(self.judge_model)}"
             f"__q{self.n_questions}_p{self.n_paraphrases}"
             + (f"_g{self.n_generations}" if self.attack_method == "evolutionary" else "")
+            + (f"_fit_{slug(self.fitness)}"
+               if self.attack_method == "evolutionary" and self.fitness != "none" else "")
         )
 
     def to_dict(self) -> dict:
@@ -153,6 +171,11 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
     parser.add_argument("--pop-multiplier",   type=int,   default=defaults.pop_multiplier)
     parser.add_argument("--n-mutations",      type=int,   default=defaults.n_mutations)
     parser.add_argument("--semantic-threshold", type=float, default=defaults.semantic_threshold)
+    parser.add_argument("--fitness", default=defaults.fitness, choices=FITNESS_CHOICES,
+                        help="none: mutate every survivor; amplification: mutate only "
+                             "the survivors the victim deliberates longest over")
+    parser.add_argument("--elite-size", type=int, default=defaults.elite_size,
+                        help="Survivors mutated per generation when --fitness is set")
 
     # Dataset
     parser.add_argument("--dataset-path", default=None)
@@ -179,6 +202,8 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
                         default=defaults.victim_temperature)
     parser.add_argument("--judge-temperature", type=float,
                         default=defaults.judge_temperature)
+    parser.add_argument("--victim-max-tokens", type=int,
+                        default=defaults.victim_max_tokens)
 
     args = parser.parse_args(argv)
 
@@ -194,6 +219,8 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
         pop_multiplier=args.pop_multiplier,
         n_mutations=args.n_mutations,
         semantic_threshold=args.semantic_threshold,
+        fitness=args.fitness,
+        elite_size=args.elite_size,
         dataset_path=args.dataset_path,
         n_questions=args.n_questions,
         random_seed=args.random_seed,
@@ -204,6 +231,7 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
         attacker_temperature=args.attacker_temperature,
         victim_temperature=args.victim_temperature,
         judge_temperature=args.judge_temperature,
+        victim_max_tokens=args.victim_max_tokens,
     )
     cfg.validate()
     return cfg
