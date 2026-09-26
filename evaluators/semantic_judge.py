@@ -1,0 +1,169 @@
+"""
+Semantic Equivalence Judge.
+
+Determines whether a paraphrase asks the SAME question as the original
+(i.e. has identical meaning and the same correct answer), regardless of
+how the words are arranged.
+
+This is distinct from the answer judge (llm_judge.py), which checks whether
+the victim's *answer* is correct.  Here we check whether the *question*
+is semantically valid.
+"""
+
+import logging
+import re
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+from ollama_client import OllamaClient, _parse_json_robust, normalise_text
+
+logger = logging.getLogger(__name__)
+
+_SYSTEM = (
+    "You are a semantic equivalence judge for questions.\n"
+    "Task: decide whether a paraphrased question is semantically equivalent "
+    "to the original — meaning both questions ask about the same thing and "
+    "would have the same correct answer.\n"
+    "\n"
+    "Scoring rules:\n"
+    "- Score 1: the paraphrase asks the SAME question. Minor rewording, synonym "
+    "substitution, voice change, or clause reordering are fine.\n"
+    "- Score 0 in ANY of these cases:\n"
+    "  * The paraphrase changes what is being asked (different subject, time period, scope).\n"
+    "  * The paraphrase adds a qualifier or false premise that alters the meaning.\n"
+    "  * The paraphrase EMBEDS THE ANSWER inside the question itself — e.g. if the "
+    "original asks 'Which civilization built X?' and the paraphrase says 'Which "
+    "civilization built the [answer] X?' that leaks the answer and is NOT equivalent.\n"
+    "  * The paraphrase is self-answering, circular, or paradoxical.\n"
+    "- Ignore trivial formatting differences (capitalisation, punctuation).\n"
+    "\n"
+    'Output ONLY this JSON: {"score": 0 or 1, "rationale": "one sentence"}'
+)
+
+_USER_TMPL = (
+    'Original question: "{original}"\n'
+    'Paraphrase: "{paraphrase}"\n\n'
+    "Are these semantically equivalent (same meaning, same correct answer)?\n"
+    'Output ONLY: {{"score": 0 or 1, "rationale": "..."}}'
+)
+
+_SCORE_RE = re.compile(r'["\']?score["\']?\s*:\s*["\']?(-?\d+(?:\.\d+)?)', re.I)
+
+
+@dataclass
+class SemanticResult:
+    is_equivalent: bool
+    score: float          # 0.0 – 1.0
+    rationale: str
+
+
+class SemanticEquivalenceJudge:
+    """
+    Uses an LLM to judge whether a paraphrase is semantically equivalent to
+    the original question.
+
+    Args:
+        client:      Shared OllamaClient.
+        model:       Ollama model tag for the judge.
+        temperature: 0 for determinism.
+        threshold:   Minimum score to consider a paraphrase valid (default 0.7).
+                     Use 0.5 for binary yes/no models.
+    """
+
+    def __init__(
+        self,
+        client: OllamaClient,
+        model: str = "llama3.1:8b",
+        temperature: float = 0.0,
+        threshold: float = 0.7,
+    ):
+        self.client = client
+        self.model = model
+        self.temperature = temperature
+        self.threshold = threshold
+
+    def judge(self, paraphrase: str, original: str, ground_truth_answers=None) -> SemanticResult:
+        """
+        Returns a SemanticResult indicating whether the paraphrase is
+        semantically equivalent to the original question.
+        """
+        # Fast path: trivially identical after normalisation
+        if normalise_text(paraphrase) == normalise_text(original):
+            return SemanticResult(is_equivalent=True, score=1.0,
+                                  rationale="Identical after normalisation.")
+
+
+        messages = [
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user",   "content": _USER_TMPL.format(
+                original=original, paraphrase=paraphrase
+            )},
+        ]
+
+        try:
+            raw = self.client.chat(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=128,
+                think=False,
+            )
+        except Exception as exc:
+            logger.warning("[sem_judge] LLM call failed: %s", exc)
+            return SemanticResult(is_equivalent=False, score=0.0,
+                                  rationale=f"Judge error: {exc}")
+
+        score, rationale = _parse_score_and_rationale(raw)
+        if score is None:
+            logger.warning("[sem_judge] Could not parse score from: %r", raw[:200])
+            return SemanticResult(is_equivalent=False, score=0.0,
+                                  rationale="Parse error.")
+
+        is_equiv = score >= self.threshold
+        return SemanticResult(is_equivalent=is_equiv, score=score,
+                              rationale=rationale)
+
+
+# ---------------------------------------------------------------------------
+# Parsing helpers
+# ---------------------------------------------------------------------------
+
+def _parse_score_and_rationale(raw: str) -> Tuple[Optional[float], str]:
+    """Extract score and rationale from the judge's raw output."""
+    score: Optional[float] = None
+    rationale = ""
+
+    try:
+        parsed = _parse_json_robust(raw)
+        if isinstance(parsed, dict):
+            for k, v in parsed.items():
+                if k.lower() == "score":
+                    try:
+                        score = float(v)
+                    except (TypeError, ValueError):
+                        pass
+            rationale = (parsed.get("rationale") or parsed.get("reason") or "")
+    except ValueError:
+        pass
+
+    # Regex fallback
+    if score is None:
+        m = _SCORE_RE.search(raw)
+        if m:
+            try:
+                score = float(m.group(1))
+            except ValueError:
+                pass
+
+    # Last resort: look for explicit "score: 1" / "score: 0"
+    if score is None:
+        low = raw.lower()
+        if "score: 1" in low or '"score": 1' in low:
+            score = 1.0
+        elif "score: 0" in low or '"score": 0' in low:
+            score = 0.0
+
+    if not rationale:
+        rationale = raw[:120]
+
+    return score, rationale

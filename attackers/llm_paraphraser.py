@@ -1,14 +1,16 @@
 """
-LLM-based adversarial paraphraser.
+LLM-based paraphraser.
 
-Each "strategy" is a named system-prompt template that instructs the attacker
-LLM to rewrite questions in a different subtle-but-misleading way.
-Swapping strategy = changing the STRATEGIES key used at construction time.
+All strategies produce SEMANTICALLY EQUIVALENT paraphrases — questions that
+mean the same thing as the original and have the same correct answer, just
+phrased differently.  The "attack" is the discovery that even semantically
+identical questions can cause an LLM to answer incorrectly due to framing
+sensitivity.
 
+Each strategy applies a different type of linguistic transformation.
 Adding a new strategy: add an entry to the STRATEGIES dict below.
 """
 
-import json
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -20,83 +22,76 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Strategy definitions
-# Each value is (system_prompt_template, user_message_template).
-# Available placeholders: {question}, {answers_str}, {n}
+# Each value is (system_prompt, user_message_template).
+# Placeholder available in user message: {question}, {n}
+# ALL strategies must preserve the question's meaning and correct answer.
 # ---------------------------------------------------------------------------
 
 STRATEGIES: Dict[str, Tuple[str, str]] = {
     # ------------------------------------------------------------------
-    # Adversarial strategies (goal: cause the victim to answer wrongly)
+    # synonym: replace words/phrases with synonyms or equivalent expressions
     # ------------------------------------------------------------------
-    "misleading_entity": (
-        # System
-        "You are an adversarial question generator for AI robustness research.\n"
-        "Task: rewrite a question so it looks nearly identical to the original "
-        "but asks about a DIFFERENT entity, fact, or relationship — one that "
-        "requires a different answer.\n"
-        "Rules:\n"
-        "- Swap only one key noun, name, or descriptor — change as little as possible.\n"
-        "- The change must be subtle; a casual reader should not notice.\n"
-        "- Every variant must be a complete, natural-sounding question.\n"
-        'Output ONLY this JSON object: {"paraphrases": ["q1", "q2", ...]}',
-        # User
-        'Original question: "{question}"\n'
-        "Known correct answer(s): {answers_str}\n\n"
-        "Generate {n} adversarial paraphrases requiring a DIFFERENT answer.\n"
-        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
-    ),
-    "temporal_shift": (
-        "You are an adversarial question generator for AI robustness research.\n"
-        "Task: subtly modify the temporal aspect of a question (dates, years, "
-        "eras, sequences) so it looks almost identical but requires a different answer.\n"
-        "Rules:\n"
-        "- Change as little as possible — ideally just one word or number.\n"
-        "- Keep the question natural and plausible.\n"
-        'Output ONLY this JSON object: {"paraphrases": ["q1", "q2", ...]}',
-        'Original question: "{question}"\n'
-        "Known correct answer(s): {answers_str}\n\n"
-        "Generate {n} adversarial paraphrases with shifted temporal context.\n"
-        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
-    ),
-    "scope_change": (
-        "You are an adversarial question generator for AI robustness research.\n"
-        "Task: subtly change the scope, geographic qualifier, or categorical "
-        "constraint so the question looks nearly identical but requires a different answer.\n"
-        "Examples of subtle scope changes:\n"
-        "  'capital of Australia' → 'capital of New Zealand'\n"
-        "  'longest river in South America' → 'longest river in North America'\n"
-        'Output ONLY this JSON object: {"paraphrases": ["q1", "q2", ...]}',
-        'Original question: "{question}"\n'
-        "Known correct answer(s): {answers_str}\n\n"
-        "Generate {n} adversarial paraphrases with a changed scope or qualifier.\n"
-        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
-    ),
-    "presupposition": (
-        "You are an adversarial question generator for AI robustness research.\n"
-        "Task: embed a subtle false presupposition inside the question so an LLM "
-        "might accept the false premise and answer incorrectly.\n"
-        "Examples:\n"
-        "  'Who wrote 1984, the novel set in Russia?' (false: it is set in Britain)\n"
-        "  'What is the capital of Australia, the continent's largest city?' "
-        "(false: Canberra is not the largest city)\n"
-        'Output ONLY this JSON object: {"paraphrases": ["q1", "q2", ...]}',
-        'Original question: "{question}"\n'
-        "Known correct answer(s): {answers_str}\n\n"
-        "Generate {n} adversarial paraphrases with subtle false presuppositions.\n"
-        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
-    ),
-    # ------------------------------------------------------------------
-    # Control / baseline (should NOT attack effectively)
-    # ------------------------------------------------------------------
-    "semantic_preserve": (
-        "You are a paraphrase generator.\n"
-        "Task: rewrite questions in different words while preserving their "
-        "EXACT meaning. The paraphrases must require the SAME answer as the original.\n"
-        "Rules: use synonyms, restructure the sentence, change voice or word order. "
-        "Do NOT change the factual content or add new constraints.\n"
-        'Output ONLY this JSON object: {"paraphrases": ["q1", "q2", ...]}',
+    "synonym": (
+        "You are a paraphrase generator for NLP research.\n"
+        "Task: rewrite questions by substituting key words and phrases with "
+        "synonyms or equivalent expressions.\n"
+        "Critical rules:\n"
+        "- The meaning and correct answer must be IDENTICAL to the original.\n"
+        "- Do NOT change dates, names, numbers, or facts — only the surrounding words.\n"
+        "- Every variant must be a natural, fluent question.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
         'Original question: "{question}"\n\n'
-        "Generate {n} genuine paraphrases that preserve the full meaning.\n"
+        "Generate {n} paraphrases using synonyms and equivalent expressions.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
+    # structural: change sentence structure while preserving meaning
+    # ------------------------------------------------------------------
+    "structural": (
+        "You are a paraphrase generator for NLP research.\n"
+        "Task: rewrite questions by changing their grammatical structure — "
+        "active↔passive voice, question word choice, clause order, nominalisation — "
+        "while keeping the meaning and correct answer IDENTICAL.\n"
+        "Critical rules:\n"
+        "- Do NOT change any factual content.\n"
+        "- Every variant must be a natural, fluent question.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} structurally varied paraphrases with identical meaning.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
+    # contextual: add neutral framing or embed the question differently
+    # ------------------------------------------------------------------
+    "contextual": (
+        "You are a paraphrase generator for NLP research.\n"
+        "Task: rewrite questions by adding neutral contextual framing, "
+        "embedding them in a different conversational register, or presenting "
+        "them from a slightly different angle — without changing what is actually "
+        "being asked or the correct answer.\n"
+        "Critical rules:\n"
+        "- The factual content must remain IDENTICAL.\n"
+        "- Every variant must be a natural, fluent question.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} contextually reframed paraphrases that ask the same thing.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
+    # combined: use any mixture of the above transformations
+    # ------------------------------------------------------------------
+    "combined": (
+        "You are a paraphrase generator for NLP research.\n"
+        "Task: rewrite questions using any combination of synonym substitution, "
+        "structural change, and contextual reframing.\n"
+        "Critical rules:\n"
+        "- The meaning and correct answer must be IDENTICAL to the original.\n"
+        "- Aim for DIVERSITY across the paraphrases — each one should differ "
+        "from the others in how it phrases things.\n"
+        "- Every variant must be a natural, fluent question.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} diverse paraphrases with identical meaning.\n"
         'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
     ),
 }
@@ -104,27 +99,28 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
 
 class LLMParaphraser(BaseAttacker):
     """
-    Uses an Ollama LLM to generate adversarial paraphrases of questions.
+    Uses an Ollama LLM to generate semantically equivalent paraphrases.
 
-    Strategy selection determines the system prompt used, making it trivial
-    to add new attack styles without touching anything else.
+    Each paraphrase should have the SAME meaning and correct answer as the
+    original question — only the surface phrasing differs.  The strategy
+    controls which type of linguistic transformation is applied.
 
     Args:
         client:      Shared OllamaClient instance.
         model:       Ollama model tag for the attacker.
-        strategy:    Key into STRATEGIES dict.
-        temperature: Higher → more diverse / creative paraphrases.
-        max_tokens:  Budget for the JSON list the model returns.
-        retries:     How many times to retry on parse failure.
+        strategy:    Key into STRATEGIES dict (e.g. "combined", "synonym").
+        temperature: Higher → more diverse paraphrases.
+        max_tokens:  Budget for the JSON response.
+        retries:     Retry attempts on parse failure.
     """
 
     def __init__(
         self,
         client: OllamaClient,
-        model: str = "qwen3:4b",
-        strategy: str = "misleading_entity",
+        model: str = "llama3.1:8b",
+        strategy: str = "combined",
         temperature: float = 0.9,
-        max_tokens: int = 2048,
+        max_tokens: int = 1024,
         retries: int = 1,
     ):
         if strategy not in STRATEGIES:
@@ -142,26 +138,20 @@ class LLMParaphraser(BaseAttacker):
 
     @property
     def name(self) -> str:
-        return f"llm_paraphraser_{self.strategy}"
+        return f"llm_{self.strategy}"
 
     def generate_paraphrases(
         self,
         question: str,
-        answers: List[str],
+        answers: List[str],  # kept for interface compatibility; not used in prompts
         n: int = 10,
     ) -> List[str]:
         """
-        Generate up to `n` adversarial paraphrases for `question`.
+        Generate up to `n` semantically equivalent paraphrases for `question`.
         Returns a deduplicated list (may be shorter than n on parse failure).
         """
-        answers_str = ", ".join(f'"{a}"' for a in answers)
-
         system = self._sys_tmpl
-        user = self._usr_tmpl.format(
-            question=question,
-            answers_str=answers_str,
-            n=n,
-        )
+        user = self._usr_tmpl.format(question=question, n=n)
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
