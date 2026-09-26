@@ -119,6 +119,46 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
         'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
     ),
     # ------------------------------------------------------------------
+    # indirect_reference: name the subject by a true peripheral attribute
+    # instead of its common name.
+    #
+    # Empirically the strongest attack found so far.  The paraphrase stays
+    # semantically equivalent because the attribute uniquely identifies the
+    # same entity, but it forces the model to compose two retrieval steps
+    # (attribute -> entity -> fact) in a single pass.  Models that answer
+    # both steps correctly in isolation often fail the composed form and
+    # confabulate rather than admit uncertainty.
+    #
+    # Key requirement: every attribute used must be TRUE and UNIQUELY
+    # identifying.  A false or ambiguous attribute changes the question and
+    # invalidates the paraphrase.
+    # ------------------------------------------------------------------
+    "indirect_reference": (
+        "You are a paraphrase generator for adversarial NLP research.\n"
+        "Task: rewrite a question so that the subject is identified by a TRUE, "
+        "uniquely identifying peripheral attribute rather than by its common name.\n"
+        "\n"
+        "Method:\n"
+        "- Find the key entity in the question (a person, place, work, or event).\n"
+        "- Replace its name with a factually correct description that picks out "
+        "that entity and nothing else.\n"
+        "- Prefer peripheral, less-canonical attributes (where it is housed, what "
+        "it is made of, who rediscovered it, what it is derived from, where a "
+        "related event happened) over the most famous facts about it.\n"
+        "\n"
+        "Critical rules:\n"
+        "- Every attribute you use must be FACTUALLY TRUE.\n"
+        "- The attribute must identify EXACTLY ONE entity — no ambiguity.\n"
+        "- The correct answer must remain IDENTICAL to the original question's answer.\n"
+        "- Do NOT reveal the answer inside the question.\n"
+        "- Each paraphrase must be a grammatically valid question.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} paraphrases that refer to the subject only by true, uniquely "
+        "identifying peripheral attributes rather than its name.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
     # combined: use any mixture of the above transformations
     # ------------------------------------------------------------------
     "combined": (

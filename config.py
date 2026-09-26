@@ -23,6 +23,7 @@ PARAPHRASE_STRATEGIES = [
     "structural",  # change sentence structure (active/passive, word order)
     "contextual",  # add neutral framing without changing meaning
     "unnatural",   # syntactically valid but maximally non-human / awkward phrasing
+    "indirect_reference",  # name the subject by a true peripheral attribute
 ]
 
 ATTACK_METHODS = [
