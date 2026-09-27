@@ -46,6 +46,9 @@ def main():
         print(f"  Generations        : {cfg.n_generations}")
         print(f"  Pop multiplier     : {cfg.pop_multiplier}×")
         print(f"  Mutations/survivor : {cfg.n_mutations}")
+        print(f"  Fitness            : {cfg.fitness}")
+        if cfg.fitness != "none":
+            print(f"  Elite size         : {cfg.elite_size}")
     print(f"  Semantic threshold : {cfg.semantic_threshold}")
     print(f"  Run ID             : {cfg.run_id()}")
     print()

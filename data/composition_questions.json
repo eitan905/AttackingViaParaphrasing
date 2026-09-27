@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cq_001",
+    "question": "In which year was the Peace of Westphalia signed?",
+    "answers": ["1648"],
+    "note": "Positive control. Referring to the settlement by its two host cities (Osnabruck and Munster) already produces a confident wrong answer."
+  },
+  {
+    "id": "cq_002",
+    "question": "In which year was the Treaty of Versailles signed?",
+    "answers": ["1919"],
+    "note": "Bridge attribute: signed in the Hall of Mirrors."
+  },
+  {
+    "id": "cq_003",
+    "question": "In which year did the American Civil War end?",
+    "answers": ["1865"],
+    "note": "Bridge attribute: the surrender at Appomattox Court House."
+  },
+  {
+    "id": "cq_004",
+    "question": "In which year was Abraham Lincoln assassinated?",
+    "answers": ["1865"],
+    "note": "Bridge attribute: the man who delivered the Gettysburg Address."
+  },
+  {
+    "id": "cq_005",
+    "question": "In which year was the Magna Carta sealed?",
+    "answers": ["1215"],
+    "note": "Bridge attribute: the meadow at Runnymede."
+  },
+  {
+    "id": "cq_006",
+    "question": "In which year was the Treaty of Tordesillas signed?",
+    "answers": ["1494"],
+    "note": "Obscure treaty with a papal-mediation bridge; dividing line between Spanish and Portuguese claims."
+  },
+  {
+    "id": "cq_007",
+    "question": "In which year did the Battle of Hastings take place?",
+    "answers": ["1066"],
+    "note": "Bridge attribute: the battle depicted on the Bayeux Tapestry."
+  },
+  {
+    "id": "cq_008",
+    "question": "Which war was ended by the Treaty of Ghent?",
+    "answers": ["War of 1812", "the War of 1812"],
+    "note": "Two-sided: the treaty can be renamed by its host city, the war by its participants."
+  }
+]

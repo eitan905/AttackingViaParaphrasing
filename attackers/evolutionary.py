@@ -110,6 +110,34 @@ _MUTATE_USER = (
     'Output ONLY valid JSON: {{"paraphrases": ["m1", "m2", ...]}}'
 )
 
+# Used when fitness is amplification: keep meaning, but push the parent
+# further along the axis that actually strained the victim — replace remaining
+# proper nouns with true, uniquely identifying attributes.
+_MUTATE_INDIRECT_SYSTEM = (
+    "You are a paraphrase mutation engine for adversarial NLP research.\n"
+    "Task: take a paraphrase that already identifies its subject indirectly "
+    "and push it further in that direction.\n"
+    "Replace any remaining proper names, dates, or well-known labels with "
+    "TRUE, uniquely identifying peripheral attributes (where it is housed, "
+    "what it is made of, who rediscovered it, a related event, a material, "
+    "a location). Do NOT invent facts.\n"
+    "Critical rules:\n"
+    "- The meaning and correct answer must stay IDENTICAL to the original.\n"
+    "- Every attribute must be factually true and uniquely identifying.\n"
+    "- Do NOT embed the answer in the question. Never include the year, name, "
+    "or other value that the original question is asking for.\n"
+    "- Each mutation must differ from the input paraphrase.\n"
+    'Output ONLY this JSON: {"paraphrases": ["m1", "m2", ...]}'
+)
+
+_MUTATE_INDIRECT_USER = (
+    'Original question: "{original}"\n'
+    'Paraphrase to mutate: "{paraphrase}"\n\n'
+    "Generate {n} mutations that identify the subject even more indirectly "
+    "while keeping the exact same meaning and correct answer.\n"
+    'Output ONLY valid JSON: {{"paraphrases": ["m1", "m2", ...]}}'
+)
+
 
 class EvolutionaryAttacker(BaseAttacker):
     """
@@ -381,10 +409,14 @@ class EvolutionaryAttacker(BaseAttacker):
     # ------------------------------------------------------------------
 
     def _mutate(self, paraphrase: str, original: str, n: int) -> List[str]:
-        """Ask the LLM to generate `n` subtle mutations of `paraphrase`."""
+        """Ask the LLM to generate `n` mutations of `paraphrase`."""
+        if self.fitness_victim is not None:
+            system, user_tmpl = _MUTATE_INDIRECT_SYSTEM, _MUTATE_INDIRECT_USER
+        else:
+            system, user_tmpl = _MUTATE_SYSTEM, _MUTATE_USER
         messages = [
-            {"role": "system", "content": _MUTATE_SYSTEM},
-            {"role": "user",   "content": _MUTATE_USER.format(
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user_tmpl.format(
                 original=original, paraphrase=paraphrase, n=n
             )},
         ]

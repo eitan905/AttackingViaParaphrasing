@@ -150,7 +150,8 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
         "- Every attribute you use must be FACTUALLY TRUE.\n"
         "- The attribute must identify EXACTLY ONE entity — no ambiguity.\n"
         "- The correct answer must remain IDENTICAL to the original question's answer.\n"
-        "- Do NOT reveal the answer inside the question.\n"
+        "- Do NOT reveal the answer inside the question. Never include the year, "
+        "name, or other value that the question is asking for.\n"
         "- Each paraphrase must be a grammatically valid question.\n"
         'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
         'Original question: "{question}"\n\n'

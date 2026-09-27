@@ -47,6 +47,41 @@ _USER_TMPL = (
     'Output ONLY: {{"score": 0 or 1, "rationale": "..."}}'
 )
 
+# Referent round-trip. When a paraphrase swaps an entity's name for a
+# description, the equivalence judge has no way to tell whether that
+# description is factually true — it waved through "the U.S. president who was
+# elected in 1856" for a question about Lincoln, who was elected in 1860. That
+# describes Buchanan, so the victim's "1868" was a correct answer to a
+# different question, not an attack. Resolving both subjects independently and
+# comparing them catches the substitution.
+_REFERENT_SYSTEM = (
+    "You identify what a question is about.\n"
+    "You are given two questions. For each, name the specific real-world entity "
+    "that the question's subject description picks out.\n"
+    "Resolve descriptions using facts: if a description does not match the "
+    "entity the other question is about, say so rather than assuming they agree.\n"
+    "If a description matches no real entity, or more than one, use \"unknown\".\n"
+    'Output ONLY this JSON: {"original_subject": "...", "paraphrase_subject": "...", '
+    '"same_entity": 0 or 1}'
+)
+
+_REFERENT_USER = (
+    "/no_think\n"
+    'Question A: "{original}"\n'
+    'Question B: "{paraphrase}"\n\n'
+    "Which entity is each question's subject? Do they refer to the same entity?"
+)
+
+_REFERENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "original_subject": {"type": "string"},
+        "paraphrase_subject": {"type": "string"},
+        "same_entity": {"type": "integer", "enum": [0, 1]},
+    },
+    "required": ["original_subject", "paraphrase_subject", "same_entity"],
+}
+
 _SCORE_RE = re.compile(r'["\']?score["\']?\s*:\s*["\']?(-?\d+(?:\.\d+)?)', re.I)
 
 # Constrained-decoding schema. qwen3 and friends ignore "output only JSON"
@@ -88,11 +123,13 @@ class SemanticEquivalenceJudge:
         model: str = "llama3.1:8b",
         temperature: float = 0.0,
         threshold: float = 0.7,
+        check_referent: bool = True,
     ):
         self.client = client
         self.model = model
         self.temperature = temperature
         self.threshold = threshold
+        self.check_referent = check_referent
 
     def judge(self, paraphrase: str, original: str, ground_truth_answers=None) -> SemanticResult:
         """
@@ -157,8 +194,73 @@ class SemanticEquivalenceJudge:
                                   rationale="Parse error.")
 
         is_equiv = score >= self.threshold
+
+        # Only worth checking when the paraphrase dropped a name the original
+        # had — that is the case where a description was substituted for it.
+        if is_equiv and self.check_referent and _dropped_proper_noun(paraphrase, original):
+            same, detail = self._same_referent(paraphrase, original)
+            if not same:
+                return SemanticResult(is_equivalent=False, score=0.0,
+                                      rationale=f"Different referent: {detail}")
+
         return SemanticResult(is_equivalent=is_equiv, score=score,
                               rationale=rationale)
+
+    def _same_referent(self, paraphrase: str, original: str) -> Tuple[bool, str]:
+        """Resolve both questions' subjects and report whether they match."""
+        messages = [
+            {"role": "system", "content": _REFERENT_SYSTEM},
+            {"role": "user",   "content": _REFERENT_USER.format(
+                original=original, paraphrase=paraphrase
+            )},
+        ]
+        try:
+            parsed = self.client.chat_json(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=512,
+                think=False,
+                schema=_REFERENT_SCHEMA,
+            )
+        except Exception as exc:
+            logger.warning("[sem_judge] Referent check failed: %s", exc)
+            return True, ""   # don't reject on infrastructure failure
+
+        if not isinstance(parsed, dict):
+            return True, ""
+
+        orig_subj = str(parsed.get("original_subject", "")).strip()
+        para_subj = str(parsed.get("paraphrase_subject", "")).strip()
+        same = bool(parsed.get("same_entity", 1))
+
+        # Trust an explicit name match over the model's own flag.
+        no, np_ = normalise_text(orig_subj), normalise_text(para_subj)
+        if no and np_ and (no == np_ or no in np_ or np_ in no):
+            same = True
+
+        return same, f"original is about {orig_subj!r}, paraphrase about {para_subj!r}"
+
+
+# Capitalised only because they open a sentence — not names.
+_NOT_NAMES = {
+    "which", "what", "where", "when", "who", "whom", "whose", "that", "this",
+    "these", "those", "ancient", "modern", "famous", "great", "during", "from",
+    "into", "were", "was", "did", "does", "name",
+}
+
+
+def _proper_nouns(text: str) -> set:
+    return {
+        w for w in re.findall(r"\b[A-Z][a-zA-Z]{3,}\b", text)
+        if w.lower() not in _NOT_NAMES
+    }
+
+
+def _dropped_proper_noun(paraphrase: str, original: str) -> bool:
+    """True if the paraphrase no longer names something the original named."""
+    para_lower = paraphrase.lower()
+    return any(noun.lower() not in para_lower for noun in _proper_nouns(original))
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +270,10 @@ class SemanticEquivalenceJudge:
 # Zero-width and bidirectional formatting characters.
 _INVISIBLE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\xad]")
 
-# A colon or semicolon glued to the inside of a word, e.g. "Pic:u".
-_INTERNAL_PUNCT = re.compile(r"\b\w+[:;]\w+\b")
+# A colon or semicolon glued to a word, e.g. "Pic:u" or "American Civil: War".
+# A single factual question never needs either mark, so any occurrence is the
+# mutation operator having corrupted the text.
+_INTERNAL_PUNCT = re.compile(r"\w[:;]")
 
 
 def _check_malformed(paraphrase: str, original: str) -> Optional[str]:
@@ -185,12 +289,12 @@ def _check_malformed(paraphrase: str, original: str) -> Optional[str]:
 
     m = _INTERNAL_PUNCT.search(paraphrase)
     if m:
-        return f"punctuation inside the word {m.group(0)!r}"
+        return f"stray {m.group(0)[-1]!r} in the text"
 
     # Proper nouns from the original must survive intact, not as fragments.
     # A fragment counts as a truncation only if at least two characters were
     # dropped, so that plurals like "Inca"/"Incas" are left alone.
-    original_nouns = set(re.findall(r"\b[A-Z][a-zA-Z]{3,}\b", original))
+    original_nouns = _proper_nouns(original)
     para_nouns = set(re.findall(r"\b[A-Z][a-zA-Z]{2,}\b", paraphrase))
     for frag in para_nouns - original_nouns:
         for noun in original_nouns:

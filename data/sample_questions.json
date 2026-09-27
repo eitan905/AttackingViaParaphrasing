@@ -98,5 +98,20 @@
     "id": "nq_020",
     "question": "Who was the first President of the United States?",
     "answers": ["George Washington"]
+  },
+  {
+    "id": "nq_021",
+    "question": "In which year was the Peace of Westphalia signed?",
+    "answers": ["1648"]
+  },
+  {
+    "id": "nq_022",
+    "question": "Who wrote the novel 'Things Fall Apart'?",
+    "answers": ["Chinua Achebe", "Achebe"]
+  },
+  {
+    "id": "nq_023",
+    "question": "In which year did the American Civil War end?",
+    "answers": ["1865"]
   }
 ]
