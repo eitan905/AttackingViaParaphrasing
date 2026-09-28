@@ -40,6 +40,9 @@ def main():
     print(f"  Attacker model     : {cfg.attacker_model}")
     print(f"  Victim model       : {cfg.victim_model}")
     print(f"  Judge model        : {cfg.judge_model}")
+    print(f"  Attacker/judge URL : {cfg.ollama_base_url}")
+    if cfg.victim_base_url:
+        print(f"  Victim URL         : {cfg.victim_base_url}")
     print(f"  Questions          : {cfg.n_questions}")
     print(f"  Paraphrases/Q      : {cfg.n_paraphrases}")
     if cfg.attack_method == "evolutionary":

@@ -30,6 +30,8 @@ _SYSTEM = (
     "substitution, voice change, or clause reordering are fine.\n"
     "- Score 0 in ANY of these cases:\n"
     "  * The paraphrase changes what is being asked (different subject, time period, scope).\n"
+    "  * The paraphrase changes the type of answer required (year vs name vs event vs document).\n"
+    "  * The paraphrase's description could equally pick out a different well-known entity.\n"
     "  * The paraphrase adds a qualifier or false premise that alters the meaning.\n"
     "  * The paraphrase is circular or paradoxical.\n"
     "- A paraphrase that restates a true, well-known attribute of the subject is "
@@ -60,7 +62,13 @@ _REFERENT_SYSTEM = (
     "that the question's subject description picks out.\n"
     "Resolve descriptions using facts: if a description does not match the "
     "entity the other question is about, say so rather than assuming they agree.\n"
-    "If a description matches no real entity, or more than one, use \"unknown\".\n"
+    "If a description matches no real entity, or more than one, use \"unknown\" "
+    "and set same_entity to 0.\n"
+    "A vague description that could fit several famous events or documents "
+    "(e.g. 'a treaty marking the decline of a European imperial system') "
+    "is NOT the same entity — set same_entity to 0.\n"
+    "A false place or date in the description (Nuremberg for a treaty signed "
+    "in Münster) means a different entity — set same_entity to 0.\n"
     'Output ONLY this JSON: {"original_subject": "...", "paraphrase_subject": "...", '
     '"same_entity": 0 or 1}'
 )
@@ -165,6 +173,14 @@ class SemanticEquivalenceJudge:
                 rationale=f"Dangling reference: '{dangling}' has no referent in a standalone question.",
             )
 
+        type_mismatch = _check_answer_type(paraphrase, original)
+        if type_mismatch:
+            return SemanticResult(
+                is_equivalent=False,
+                score=0.0,
+                rationale=f"Answer-type flip: {type_mismatch}",
+            )
+
 
         messages = [
             {"role": "system", "content": _SYSTEM},
@@ -195,9 +211,11 @@ class SemanticEquivalenceJudge:
 
         is_equiv = score >= self.threshold
 
-        # Only worth checking when the paraphrase dropped a name the original
-        # had — that is the case where a description was substituted for it.
-        if is_equiv and self.check_referent and _dropped_proper_noun(paraphrase, original):
+        # Referent check whenever the paraphrase no longer names the original
+        # subject, or names something the original never did, or is so vague
+        # it names nothing.  Those are the cases where a description was
+        # substituted and may pick out the wrong entity.
+        if is_equiv and self.check_referent and _needs_referent_check(paraphrase, original):
             same, detail = self._same_referent(paraphrase, original)
             if not same:
                 return SemanticResult(is_equivalent=False, score=0.0,
@@ -232,11 +250,16 @@ class SemanticEquivalenceJudge:
 
         orig_subj = str(parsed.get("original_subject", "")).strip()
         para_subj = str(parsed.get("paraphrase_subject", "")).strip()
-        same = bool(parsed.get("same_entity", 1))
+        same_flag = parsed.get("same_entity", 1)
+        try:
+            same = int(same_flag) == 1
+        except (TypeError, ValueError):
+            same = bool(same_flag)
 
-        # Trust an explicit name match over the model's own flag.
         no, np_ = normalise_text(orig_subj), normalise_text(para_subj)
-        if no and np_ and (no == np_ or no in np_ or np_ in no):
+        if np_ in {"", "unknown", "ambiguous", "multiple"}:
+            same = False
+        elif no and np_ and (no == np_ or no in np_ or np_ in no):
             same = True
 
         return same, f"original is about {orig_subj!r}, paraphrase about {para_subj!r}"
@@ -261,6 +284,69 @@ def _dropped_proper_noun(paraphrase: str, original: str) -> bool:
     """True if the paraphrase no longer names something the original named."""
     para_lower = paraphrase.lower()
     return any(noun.lower() not in para_lower for noun in _proper_nouns(original))
+
+
+def _added_proper_noun(paraphrase: str, original: str) -> bool:
+    """True if the paraphrase names something the original never named."""
+    orig_lower = original.lower()
+    return any(noun.lower() not in orig_lower for noun in _proper_nouns(paraphrase))
+
+
+def _needs_referent_check(paraphrase: str, original: str) -> bool:
+    """True when the paraphrase may have substituted a description for a name."""
+    if _dropped_proper_noun(paraphrase, original):
+        return True
+    if _added_proper_noun(paraphrase, original):
+        return True
+    return not _proper_nouns(paraphrase)
+
+
+# ---------------------------------------------------------------------------
+# Answer-type detection
+# ---------------------------------------------------------------------------
+
+# More specific patterns first. "which year" must beat "which document".
+_TYPE_PATTERNS = [
+    ("year", re.compile(
+        r"\b((in )?which year|what year|in what year|which date|what date)\b"
+        r"|^when\b|\bwhen (did|was|were|is|does)\b",
+        re.I,
+    )),
+    ("person", re.compile(r"\b(who|whom)\b", re.I)),
+    ("place", re.compile(
+        r"\b(where|which (city|country|place|site|location|building))\b", re.I
+    )),
+    ("entity", re.compile(
+        r"\b(which|what)\s+"
+        r"(document|treaty|agreement|accord|pact|novel|book|painting|"
+        r"war|event|conflict|work)\b"
+        r"|\bin what (epochal )?event\b",
+        re.I,
+    )),
+]
+
+
+def answer_type(text: str) -> str:
+    """Coarse answer type of a question: year, person, place, entity, or other."""
+    for name, pat in _TYPE_PATTERNS:
+        if pat.search(text):
+            return name
+    return "other"
+
+
+def _check_answer_type(paraphrase: str, original: str) -> Optional[str]:
+    """
+    Return a reason if the paraphrase asks for a different kind of answer.
+
+    A year-question rewritten as 'which document…' is a different question,
+    even if it is about the same event.  The victim answering with the
+    document name is then correct, not an attack.
+    """
+    orig_t = answer_type(original)
+    para_t = answer_type(paraphrase)
+    if orig_t == "other" or para_t == "other" or orig_t == para_t:
+        return None
+    return f"original asks for {orig_t}, paraphrase asks for {para_t}"
 
 
 # ---------------------------------------------------------------------------

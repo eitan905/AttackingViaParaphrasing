@@ -42,8 +42,16 @@ def run_experiment(cfg: ExperimentConfig) -> Dict[str, Any]:
     client = OllamaClient(base_url=cfg.ollama_base_url)
     client.require_available()
 
+    if cfg.victim_base_url and cfg.victim_base_url.rstrip("/") != cfg.ollama_base_url.rstrip("/"):
+        victim_client = OllamaClient(base_url=cfg.victim_base_url)
+        victim_client.require_available()
+        logger.info("Split servers: attacker/judge %s  victim %s",
+                    cfg.ollama_base_url, cfg.victim_base_url)
+    else:
+        victim_client = client
+
     # --- Components ---
-    victim = VictimModel(client, cfg.victim_model, temperature=cfg.victim_temperature,
+    victim = VictimModel(victim_client, cfg.victim_model, temperature=cfg.victim_temperature,
                          max_tokens=cfg.victim_max_tokens)
 
     semantic_judge = SemanticEquivalenceJudge(

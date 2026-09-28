@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Tuple
 
 from ollama_client import OllamaClient, _parse_json_robust
 from attackers.base import BaseAttacker
+from evaluators.semantic_judge import _proper_nouns
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,43 @@ STRATEGIES: Dict[str, Tuple[str, str]] = {
         'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
     ),
     # ------------------------------------------------------------------
+    # composition: force a two-hop retrieval (attribute -> entity -> fact)
+    # while keeping the SAME answer type as the original.
+    # ------------------------------------------------------------------
+    "composition": (
+        "You are a paraphrase generator for adversarial NLP research.\n"
+        "Task: rewrite a question so the reader must compose two facts:\n"
+        "  1. a TRUE, uniquely identifying peripheral attribute of the subject\n"
+        "  2. the original fact being asked about that subject\n"
+        "The paraphrase must still require the SAME kind of answer "
+        "(if the original asks for a year, the paraphrase asks for a year; "
+        "if it asks who, the paraphrase asks who).\n"
+        "\n"
+        "Method:\n"
+        "- Identify the named subject.\n"
+        "- Replace its common name with a uniquely identifying place, object, "
+        "person, or event associated with it (host city, material, related "
+        "battle, building). Do not invent facts.\n"
+        "- Ask the ORIGINAL question about that description.\n"
+        "\n"
+        "Critical rules:\n"
+        "- The correct answer must be IDENTICAL.\n"
+        "- The answer TYPE must be IDENTICAL (year stays year, person stays person).\n"
+        "- Do NOT ask 'which treaty/document/event' if the original asked 'which year'.\n"
+        "- The attribute must pick out exactly one entity. Vague descriptions "
+        "that fit many events are invalid.\n"
+        "- Do NOT include the answer in the question.\n"
+        "- Do NOT introduce a false place, date, or name.\n"
+        "- Do NOT use the subject's common name from the original question. "
+        "If the original says 'Peace of Westphalia' or 'Treaty of Ghent', "
+        "those names must not appear. Identify the subject only by the attribute.\n"
+        'Output ONLY this JSON: {"paraphrases": ["q1", "q2", ...]}',
+        'Original question: "{question}"\n\n'
+        "Generate {n} two-hop paraphrases: identify the subject by a true unique "
+        "attribute, then ask the same question (same answer type) about it.\n"
+        'Output ONLY valid JSON: {{"paraphrases": ["q1", "q2", ...]}}',
+    ),
+    # ------------------------------------------------------------------
     # combined: use any mixture of the above transformations
     # ------------------------------------------------------------------
     "combined": (
@@ -270,6 +308,10 @@ class LLMParaphraser(BaseAttacker):
                 )
                 last_raw = parsed if isinstance(parsed, str) else str(parsed)
                 paraphrases = _extract_string_list(parsed, question)
+                if self.strategy == "composition":
+                    dropped = [p for p in paraphrases if _drops_subject_names(p, question)]
+                    if dropped:
+                        paraphrases = dropped
 
                 if paraphrases:
                     return paraphrases
@@ -403,3 +445,12 @@ def _extract_string_list(parsed: object, original_question: str) -> List[str]:
             results.append(text)
 
     return results
+
+
+def _drops_subject_names(paraphrase: str, original: str) -> bool:
+    """True if none of the original's proper nouns remain in the paraphrase."""
+    names = _proper_nouns(original)
+    if not names:
+        return True
+    low = paraphrase.lower()
+    return all(n.lower() not in low for n in names)

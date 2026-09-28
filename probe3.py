@@ -103,6 +103,24 @@ CHAINS = [
         "direct":   ("On which ship did Charles Darwin make his famous voyage?", ["beagle"]),
         "composed": ("On which ship did the author of 'On the Origin of Species' make his famous voyage?", ["beagle"]),
     },
+    {
+        "name": "hastings",
+        "bridge":   ("Which battle is depicted on the Bayeux Tapestry?", ["hastings"]),
+        "direct":   ("In which year did the Battle of Hastings take place?", ["1066"]),
+        "composed": ("The battle depicted on the Bayeux Tapestry took place in which year?", ["1066"]),
+    },
+    {
+        "name": "runnymede",
+        "bridge":   ("Which charter was sealed at Runnymede?", ["magna carta", "magna"]),
+        "direct":   ("In which year was the Magna Carta sealed?", ["1215"]),
+        "composed": ("The charter sealed at Runnymede was issued in which year?", ["1215"]),
+    },
+    {
+        "name": "ghent",
+        "bridge":   ("Which treaty was signed in Ghent in December 1814?", ["ghent"]),
+        "direct":   ("Which war was ended by the Treaty of Ghent?", ["1812"]),
+        "composed": ("Which war was ended by the treaty signed in Ghent in December 1814?", ["1812"]),
+    },
 ]
 
 

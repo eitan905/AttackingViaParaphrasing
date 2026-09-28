@@ -53,6 +53,7 @@ from attackers.base import BaseAttacker
 from attackers.llm_paraphraser import (
     _PARAPHRASE_SCHEMA,
     LLMParaphraser,
+    _drops_subject_names,
     _extract_string_list,
 )
 from evaluators.semantic_judge import SemanticEquivalenceJudge
@@ -429,7 +430,12 @@ class EvolutionaryAttacker(BaseAttacker):
                 think=False,
                 schema=_PARAPHRASE_SCHEMA,
             )
-            return _extract_string_list(parsed, paraphrase)
+            mutations = _extract_string_list(parsed, paraphrase)
+            if self._seed_gen.strategy == "composition":
+                dropped = [m for m in mutations if _drops_subject_names(m, original)]
+                if dropped:
+                    mutations = dropped
+            return mutations
         except Exception as exc:
             logger.warning("[evo] Mutation failed for %r: %s", paraphrase, exc)
             return []

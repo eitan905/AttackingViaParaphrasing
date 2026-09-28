@@ -24,6 +24,7 @@ PARAPHRASE_STRATEGIES = [
     "contextual",  # add neutral framing without changing meaning
     "unnatural",   # syntactically valid but maximally non-human / awkward phrasing
     "indirect_reference",  # name the subject by a true peripheral attribute
+    "composition",         # two-hop: attribute identifies subject, then ask the original fact
 ]
 
 ATTACK_METHODS = [
@@ -48,6 +49,9 @@ EVALUATOR_CHOICES = ["exact_match", "llm_judge", "both"]
 class ExperimentConfig:
     # ---- Ollama server ----
     ollama_base_url: str = "http://127.0.0.1:11434"
+    # If set, the victim is queried on this host so attacker/judge can live
+    # on a different Ollama (e.g. llama3.1 on the shared server, qwen3 locally).
+    victim_base_url: Optional[str] = None
 
     # ---- Models ----
     attacker_model: str = "llama3.1:8b"
@@ -123,6 +127,7 @@ class ExperimentConfig:
 
         return (
             f"method_{slug(self.attack_method)}_{slug(self.paraphrase_strategy)}"
+            f"__atk_{slug(self.attacker_model)}"
             f"__victim_{slug(self.victim_model)}"
             f"__judge_{slug(self.judge_model)}"
             f"__q{self.n_questions}_p{self.n_paraphrases}"
@@ -149,6 +154,9 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
 
     # Ollama
     parser.add_argument("--ollama-base-url", default=defaults.ollama_base_url)
+    parser.add_argument("--victim-base-url", default=None,
+                        help="If set, victim calls go here; attacker and judge "
+                             "keep using --ollama-base-url")
 
     # Models
     parser.add_argument("--attacker-model", default=defaults.attacker_model)
@@ -209,6 +217,7 @@ def parse_args(argv: Optional[List[str]] = None) -> ExperimentConfig:
 
     cfg = ExperimentConfig(
         ollama_base_url=args.ollama_base_url,
+        victim_base_url=args.victim_base_url,
         attacker_model=args.attacker_model,
         victim_model=args.victim_model,
         judge_model=args.judge_model,
